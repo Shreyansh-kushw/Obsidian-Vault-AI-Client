@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -32,6 +33,87 @@ class UpdateVaultPathRequest(BaseModel):
 
 class ValidatePathRequest(BaseModel):
     path: str = Field(description="Directory path to test")
+
+
+def discover_obsidian_vaults() -> List[Dict[str, Any]]:
+    """Automatically detect Obsidian vaults from Obsidian app config and common directories"""
+    vaults_found = []
+    seen_paths = set()
+
+    # 1. Official Obsidian config paths
+    obsidian_config_paths = [
+        Path.home() / ".config" / "obsidian" / "obsidian.json",
+        Path.home() / "Library" / "Application Support" / "obsidian" / "obsidian.json",
+        Path(os.getenv("APPDATA", "")) / "obsidian" / "obsidian.json" if os.getenv("APPDATA") else None,
+    ]
+
+    for cfg_path in obsidian_config_paths:
+        if cfg_path and cfg_path.exists():
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    vaults_dict = data.get("vaults", {})
+                    for v_id, v_info in vaults_dict.items():
+                        v_path_str = v_info.get("path")
+                        if v_path_str:
+                            p = Path(v_path_str).resolve()
+                            if p.exists() and p.is_dir() and str(p) not in seen_paths:
+                                seen_paths.add(str(p))
+                                md_count = sum(1 for root, _, files in os.walk(p) for f in files if is_markdown_file(os.path.join(root, f)))
+                                vaults_found.append({
+                                    "name": p.name,
+                                    "path": str(p),
+                                    "markdown_count": md_count,
+                                    "is_obsidian": (p / ".obsidian").exists(),
+                                    "source": "Obsidian App Config",
+                                })
+            except Exception:
+                pass
+
+    # 2. Search common user directories
+    search_roots = [
+        Path.home() / "Documents",
+        Path.home() / "Obsidian",
+        Path.home() / "Documents" / "Obsidian",
+        Path.home() / "Notes",
+        Path.home() / "vault",
+    ]
+
+    for s_root in search_roots:
+        if s_root.exists() and s_root.is_dir():
+            # Check if s_root itself is an Obsidian vault
+            if (s_root / ".obsidian").exists() and str(s_root.resolve()) not in seen_paths:
+                p = s_root.resolve()
+                seen_paths.add(str(p))
+                md_count = sum(1 for root, _, files in os.walk(p) for f in files if is_markdown_file(os.path.join(root, f)))
+                vaults_found.append({
+                    "name": p.name,
+                    "path": str(p),
+                    "markdown_count": md_count,
+                    "is_obsidian": True,
+                    "source": "Auto-detected Folder",
+                })
+
+            # Check immediate children of s_root
+            try:
+                for child in s_root.iterdir():
+                    if child.is_dir() and not child.name.startswith("."):
+                        if ((child / ".obsidian").exists() or any(child.glob("*.md"))) and str(child.resolve()) not in seen_paths:
+                            p = child.resolve()
+                            seen_paths.add(str(p))
+                            md_count = sum(1 for root, _, files in os.walk(p) for f in files if is_markdown_file(os.path.join(root, f)))
+                            if md_count > 0:
+                                vaults_found.append({
+                                    "name": p.name,
+                                    "path": str(p),
+                                    "markdown_count": md_count,
+                                    "is_obsidian": (p / ".obsidian").exists(),
+                                    "source": "Discovered in Documents",
+                                })
+            except Exception:
+                pass
+
+    return vaults_found
 
 
 @asynccontextmanager
@@ -109,6 +191,46 @@ async def update_config(req: UpdateConfigRequest):
 @app.get("/api/vaults")
 async def list_vaults():
     return list(state.vaults.values())
+
+
+@app.get("/api/discovered-vaults")
+async def list_discovered_vaults():
+    """Automatically return detected Obsidian vaults on this computer"""
+    return discover_obsidian_vaults()
+
+
+@app.get("/api/fs/browse")
+async def browse_filesystem(path: Optional[str] = None):
+    """Browse local directory hierarchy for visual folder picker in UI"""
+    target = Path(path).expanduser().resolve() if path and path.strip() else Path.home() / "Documents"
+    if not target.exists() or not target.is_dir():
+        target = Path.home()
+
+    directories = []
+    try:
+        for entry in sorted(target.iterdir(), key=lambda x: x.name.lower()):
+            if entry.is_dir() and not entry.name.startswith("."):
+                is_vault = (entry / ".obsidian").exists()
+                md_count = sum(1 for root, _, files in os.walk(entry) for f in files if is_markdown_file(os.path.join(root, f)))
+                directories.append({
+                    "name": entry.name,
+                    "path": str(entry.resolve()),
+                    "is_vault": is_vault,
+                    "markdown_count": md_count,
+                })
+    except PermissionError:
+        pass
+
+    parent = str(target.parent.resolve()) if target.parent != target else None
+    current_md_count = sum(1 for root, _, files in os.walk(target) for f in files if is_markdown_file(os.path.join(root, f)))
+
+    return {
+        "current_path": str(target),
+        "parent_path": parent,
+        "directories": directories,
+        "markdown_count": current_md_count,
+        "is_vault": (target / ".obsidian").exists(),
+    }
 
 
 @app.get("/api/missing-folders")
@@ -253,7 +375,6 @@ async def websocket_endpoint(websocket: WebSocket):
     await state.register_ws(websocket)
     try:
         while True:
-            # Keep alive and receive any client ping
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_text("pong")

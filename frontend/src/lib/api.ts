@@ -1,4 +1,4 @@
-import type { ClientConfig, ClientDaemonStatus, Vault, ActivityLog } from '../types';
+import type { ClientConfig, ClientDaemonStatus, Vault, ActivityLog, DiscoveredVault, FsBrowseResult } from '../types';
 
 const CLIENT_API_BASE = import.meta.env.VITE_CLIENT_API_URL || 'http://localhost:5050';
 
@@ -34,6 +34,19 @@ export async function updateConfig(payload: {
 export async function fetchVaults(): Promise<Vault[]> {
   const res = await fetch(`${CLIENT_API_BASE}/api/vaults`);
   if (!res.ok) throw new Error('Failed to fetch vaults');
+  return res.json();
+}
+
+export async function fetchDiscoveredVaults(): Promise<DiscoveredVault[]> {
+  const res = await fetch(`${CLIENT_API_BASE}/api/discovered-vaults`);
+  if (!res.ok) throw new Error('Failed to fetch discovered vaults');
+  return res.json();
+}
+
+export async function browseFilesystem(path?: string): Promise<FsBrowseResult> {
+  const url = path ? `${CLIENT_API_BASE}/api/fs/browse?path=${encodeURIComponent(path)}` : `${CLIENT_API_BASE}/api/fs/browse`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to browse directory');
   return res.json();
 }
 

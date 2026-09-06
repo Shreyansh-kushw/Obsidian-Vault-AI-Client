@@ -14,6 +14,29 @@ export interface Vault {
   last_synced?: number;
 }
 
+export interface DiscoveredVault {
+  name: string;
+  path: string;
+  markdown_count: number;
+  is_obsidian: boolean;
+  source: string;
+}
+
+export interface FsDirectory {
+  name: string;
+  path: string;
+  is_vault: boolean;
+  markdown_count: number;
+}
+
+export interface FsBrowseResult {
+  current_path: string;
+  parent_path: string | null;
+  directories: FsDirectory[];
+  markdown_count: number;
+  is_vault: boolean;
+}
+
 export interface MissingFolderAlert {
   vault_id: string;
   vault_name: string;

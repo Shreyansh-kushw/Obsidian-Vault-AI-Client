@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import time
 from pathlib import Path
@@ -10,6 +11,56 @@ from app.api_client import ServerApiClient
 from app.config import config
 from app.state import state
 from app.watcher import WatcherManager, is_markdown_file
+
+
+def auto_find_local_vault_path(vault_name: str) -> Optional[str]:
+    """Automatically locate the local vault path on disk by checking Obsidian configs and common user dirs"""
+    target_name = vault_name.strip().lower()
+
+    # 1. Check Obsidian App Config
+    obsidian_config_paths = [
+        Path.home() / ".config" / "obsidian" / "obsidian.json",
+        Path.home() / "Library" / "Application Support" / "obsidian" / "obsidian.json",
+        Path(os.getenv("APPDATA", "")) / "obsidian" / "obsidian.json" if os.getenv("APPDATA") else None,
+    ]
+    for cfg in obsidian_config_paths:
+        if cfg and cfg.exists():
+            try:
+                with open(cfg, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    for _, vinfo in data.get("vaults", {}).items():
+                        vpath = vinfo.get("path")
+                        if vpath:
+                            p = Path(vpath).resolve()
+                            if p.exists() and (p.name.lower() == target_name or target_name in p.name.lower()):
+                                return str(p)
+            except Exception:
+                pass
+
+    # 2. Search common user folder roots
+    search_roots = [
+        Path.home() / "Documents" / "Obsidian",
+        Path.home() / "Documents",
+        Path.home() / "Obsidian",
+        Path.home() / "vault",
+        Path.home() / "Notes",
+        Path.home(),
+    ]
+    for s_root in search_roots:
+        if s_root.exists() and s_root.is_dir():
+            candidate = s_root / vault_name
+            if candidate.exists() and candidate.is_dir():
+                return str(candidate.resolve())
+
+            try:
+                for child in s_root.iterdir():
+                    if child.is_dir() and not child.name.startswith("."):
+                        if child.name.lower() == target_name:
+                            return str(child.resolve())
+            except Exception:
+                pass
+
+    return None
 
 
 class VaultSyncer:
@@ -123,7 +174,7 @@ class VaultSyncer:
     async def sync_all_vaults_from_server(self):
         """
         Fetch all user vaults from backend and setup watchers.
-        Detects missing local directories and triggers missing_folder_alert.
+        Automatically discovers local folder paths if path is missing or null in DB.
         """
         if not config.is_configured():
             state.update_connection(False, "Owner Token or Server URL not configured")
@@ -131,7 +182,6 @@ class VaultSyncer:
 
         ok, vaults, msg = await self.api.fetch_vaults()
         if not ok:
-            state.add_log("error", f"Could not list vaults: {msg}")
             return
 
         current_vault_ids = set()
@@ -143,6 +193,15 @@ class VaultSyncer:
             current_vault_ids.add(vault_id)
             vault_name = v.get("vault_name") or v.get("name") or vault_id[:8]
             local_path = v.get("local_vault_path")
+
+            # Auto-detect local vault path if missing or invalid on disk
+            if not local_path or not Path(local_path).exists() or not Path(local_path).is_dir():
+                detected = auto_find_local_vault_path(vault_name)
+                if detected:
+                    local_path = detected
+                    # Update server database with auto-detected path
+                    asyncio.create_task(self.api.update_vault_path(vault_id, local_path))
+                    state.add_log("success", f"Auto-detected and linked local folder: {local_path}", vault_id)
 
             v_entry = {
                 "id": vault_id,
@@ -217,8 +276,7 @@ class VaultSyncer:
         state.add_log("success", f"Reconciliation complete: {synced_count} notes synced", vault_id)
 
     async def _health_and_sync_loop(self):
-        """Periodic loop to monitor server health, reconcile vaults, and flush queues"""
-        first_run = True
+        """Periodic loop to monitor server health, reconcile vaults, and flush queues every 5s"""
         while self.is_running:
             try:
                 if config.is_configured():
@@ -226,9 +284,8 @@ class VaultSyncer:
                     state.update_connection(online, msg, latency)
 
                     if online:
-                        if first_run or not self.watcher_manager.watchers:
-                            await self.sync_all_vaults_from_server()
-                            first_run = False
+                        # Auto-sync vaults from server periodically so newly added vaults appear immediately
+                        await self.sync_all_vaults_from_server()
 
                         # Flush any offline queued events
                         await self.flush_pending_queue()
