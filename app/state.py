@@ -13,6 +13,7 @@ class AppState:
         self.connection_message: str = "Connecting to server..."
         self.server_latency_ms: float = 0.0
         self.last_checked: float = 0.0
+        self._main_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # vault_id -> dict of metadata & watcher status
         self.vaults: Dict[str, Dict[str, Any]] = {}
@@ -30,6 +31,17 @@ class AppState:
         # Connected WebSocket clients
         self.active_websockets: Set[WebSocket] = set()
 
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        self._main_loop = loop
+
+    def _safe_async(self, coro):
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            if self._main_loop and self._main_loop.is_running():
+                asyncio.run_coroutine_threadsafe(coro, self._main_loop)
+
     def add_log(self, level: str, message: str, vault_id: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         """Append an event log and broadcast to UI"""
         entry = {
@@ -44,7 +56,7 @@ class AppState:
         if len(self.activity_logs) > self.max_logs:
             self.activity_logs.pop()
 
-        asyncio.create_task(self.broadcast({"type": "log", "data": entry}))
+        self._safe_async(self.broadcast({"type": "log", "data": entry}))
 
     def update_connection(self, is_online: bool, message: str, latency: float = 0.0):
         changed = (self.is_online != is_online) or (self.connection_message != message)
@@ -54,7 +66,7 @@ class AppState:
         self.last_checked = time.time()
 
         if changed:
-            asyncio.create_task(self.broadcast({
+            self._safe_async(self.broadcast({
                 "type": "connection_status",
                 "data": {
                     "is_online": self.is_online,
@@ -66,7 +78,7 @@ class AppState:
 
     def set_vault(self, vault_id: str, vault_data: Dict[str, Any]):
         self.vaults[vault_id] = vault_data
-        asyncio.create_task(self.broadcast({
+        self._safe_async(self.broadcast({
             "type": "vault_update",
             "data": vault_data,
         }))
@@ -76,7 +88,7 @@ class AppState:
             del self.vaults[vault_id]
         if vault_id in self.missing_vault_folders:
             del self.missing_vault_folders[vault_id]
-        asyncio.create_task(self.broadcast({
+        self._safe_async(self.broadcast({
             "type": "vault_removed",
             "data": {"vault_id": vault_id},
         }))
@@ -88,7 +100,7 @@ class AppState:
             "local_vault_path": local_path,
             "detected_at": time.time(),
         }
-        asyncio.create_task(self.broadcast({
+        self._safe_async(self.broadcast({
             "type": "missing_folder_alert",
             "data": self.missing_vault_folders[vault_id],
         }))
@@ -96,7 +108,7 @@ class AppState:
     def resolve_missing_folder(self, vault_id: str):
         if vault_id in self.missing_vault_folders:
             del self.missing_vault_folders[vault_id]
-            asyncio.create_task(self.broadcast({
+            self._safe_async(self.broadcast({
                 "type": "missing_folder_resolved",
                 "data": {"vault_id": vault_id},
             }))

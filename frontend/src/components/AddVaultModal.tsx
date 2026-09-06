@@ -6,7 +6,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
-    Loader2,
+  Loader2,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -38,10 +38,17 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
   useEffect(() => {
     if (isOpen) {
       setErrorMsg('');
+      setLocalPath('');
+      setVaultName('');
+      setPathValidation({ tested: false, valid: false, count: 0 });
+
       // Load auto-detected Obsidian vaults
       fetchDiscoveredVaults()
         .then((vaults) => {
           setDiscoveredVaults(vaults);
+          if (vaults && vaults.length > 0) {
+            selectVaultPath(vaults[0].path, vaults[0].name);
+          }
         })
         .catch(() => {});
 
@@ -86,15 +93,38 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
     }
   };
 
+  const handleManualPathChange = (newPath: string) => {
+    setLocalPath(newPath);
+    if (!newPath.trim()) {
+      setPathValidation({ tested: false, valid: false, count: 0 });
+      return;
+    }
+    const parts = newPath.split(/[\/]/).filter(Boolean);
+    if (parts.length) setVaultName(parts[parts.length - 1]);
+
+    validateLocalPath(newPath)
+      .then((res) => {
+        if (res.exists && res.is_dir) {
+          setPathValidation({ tested: true, valid: true, count: res.markdown_count });
+        } else {
+          setPathValidation({
+            tested: true,
+            valid: false,
+            count: 0,
+            error: !res.exists ? 'Directory does not exist' : 'Not a directory',
+          });
+        }
+      })
+      .catch(() => {
+        setPathValidation({ tested: true, valid: false, count: 0, error: 'Invalid path' });
+      });
+  };
+
   const handleNavigate = async (path: string) => {
     setLoadingBrowse(true);
     try {
       const res = await browseFilesystem(path);
       setBrowseResult(res);
-      // If current folder has markdown files, validate it
-      if (res.markdown_count > 0 || res.is_vault) {
-        selectVaultPath(res.current_path, res.current_path.split(/[\/]/).pop() || '');
-      }
     } catch {
     } finally {
       setLoadingBrowse(false);
@@ -103,7 +133,10 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!vaultName.trim() || !localPath.trim()) return;
+    if (!vaultName.trim() || !localPath.trim()) {
+      setErrorMsg('Please select or specify a vault path and name.');
+      return;
+    }
 
     if (!pathValidation.valid) {
       setErrorMsg('Please select a valid local directory.');
@@ -132,35 +165,39 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
-      <div className="relative w-full max-w-xl glass-panel rounded-2xl border border-violet-500/30 p-6 shadow-2xl shadow-violet-500/10 max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200">
+      <div className="glass-panel w-full max-w-xl p-6 rounded-2xl border border-white/10 shadow-2xl relative space-y-4 max-h-[92vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/10">
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-tr from-violet-600 to-indigo-600 text-white shadow-md shadow-violet-600/30">
+        <div className="flex items-center justify-between pb-3 border-b border-white/10">
+          <div className="flex items-center space-x-2.5">
+            <div className="p-2 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400">
               <FolderPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Select Obsidian Vault Folder</h3>
-              <p className="text-xs text-slate-400">Choose a folder on your computer to automatically read its path & notes</p>
+              <h3 className="text-base font-bold text-white">Add Obsidian Vault</h3>
+              <p className="text-xs text-slate-400">Select a local folder to ingest and watch for changes</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 1. Quick Select Detected Obsidian Vaults */}
+        {/* 1. Auto-detected Obsidian Vaults Banner */}
         {discoveredVaults.length > 0 && (
-          <div className="mt-4 p-3 rounded-xl bg-violet-950/30 border border-violet-500/20 space-y-2">
-            <div className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-              Detected Obsidian Vaults:
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-violet-300">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+                Detected Obsidian Vaults:
+              </span>
+              <span className="text-[10px] text-slate-400 font-normal">Click to select</span>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-1.5">
               {discoveredVaults.map((dv) => {
                 const isSelected = localPath === dv.path;
                 return (
@@ -168,17 +205,18 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
                     key={dv.path}
                     type="button"
                     onClick={() => selectVaultPath(dv.path, dv.name)}
-                    className={'flex items-center space-x-2.5 p-2 rounded-lg border text-left transition-all cursor-pointer ' + (
+                    className={'w-full flex items-center gap-2.5 p-2.5 rounded-xl border text-left transition cursor-pointer ' + (
                       isSelected
-                        ? 'bg-violet-600/30 border-violet-400 text-white shadow-md'
-                        : 'bg-slate-900/60 hover:bg-slate-800/80 border-white/10 text-slate-300'
+                        ? 'bg-violet-600/25 border-violet-500/60 text-white shadow-sm shadow-violet-500/10'
+                        : 'bg-slate-900/60 border-white/10 text-slate-300 hover:bg-white/5 hover:border-white/20'
                     )}
                   >
-                    <Folder className={'w-4 h-4 shrink-0 ' + (isSelected ? 'text-violet-300' : 'text-violet-400')} />
+                    <Folder className={'w-4 h-4 shrink-0 ' + (isSelected ? 'text-violet-400' : 'text-slate-500')} />
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-semibold truncate">{dv.name}</div>
                       <div className="text-[10px] text-slate-400 truncate font-mono">{dv.path}</div>
                     </div>
+                    {isSelected && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
                   </button>
                 );
               })}
@@ -186,12 +224,12 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
           </div>
         )}
 
-        {/* 2. Visual Folder Browser (Browse your computer) */}
-        <div className="mt-4 space-y-2">
+        {/* 2. Visual Folder Browser */}
+        <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
             <span className="flex items-center gap-1.5">
               <FolderOpen className="w-3.5 h-3.5 text-violet-400" />
-              Choose Folder from Computer:
+              Browse Computer Folders:
             </span>
           </div>
 
@@ -222,7 +260,7 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
               </div>
 
               {/* Subfolders Grid */}
-              <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
                 {loadingBrowse ? (
                   <div className="py-4 flex justify-center">
                     <Loader2 className="w-4 h-4 animate-spin text-violet-400" />
@@ -249,7 +287,7 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
                       <button
                         type="button"
                         onClick={() => selectVaultPath(dir.path, dir.name)}
-                        className="text-[11px] px-2 py-0.5 rounded bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white transition cursor-pointer"
+                        className="text-[11px] px-2.5 py-0.5 rounded bg-violet-600/20 hover:bg-violet-600 text-violet-300 hover:text-white transition cursor-pointer font-medium"
                       >
                         Select
                       </button>
@@ -262,19 +300,25 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
         </div>
 
         {/* 3. Selected Folder Info & Submit */}
-        <form onSubmit={handleSubmit} className="space-y-3.5 pt-3 border-t border-white/10 mt-3">
-          {/* Selected Path Preview */}
-          <div className="space-y-1">
-            <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
-              Selected Local Path (Automatically Captured)
-            </div>
-            <div className="text-xs font-mono text-violet-200 bg-slate-950/60 p-2.5 rounded-xl border border-white/10 break-all">
-              {localPath || '(Click a folder above to select)'}
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-3 pt-3 border-t border-white/10">
+          {/* Selected Path Input & Validation */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+              <span>Local Vault Directory Path</span>
+              <span className="text-[10px] text-slate-400 font-normal">(Auto-filled or editable)</span>
+            </label>
+            <input
+              type="text"
+              value={localPath}
+              onChange={(e) => handleManualPathChange(e.target.value)}
+              placeholder="/path/to/your/obsidian/vault"
+              required
+              className="w-full text-xs font-mono px-3 py-2 rounded-xl glass-input text-violet-200"
+            />
 
             {pathValidation.tested && (
               <div
-                className={'text-[11px] flex items-center gap-1.5 px-2.5 py-1 rounded-lg mt-1 ' + (
+                className={'text-[11px] flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg ' + (
                   pathValidation.valid
                     ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/20'
                     : 'bg-rose-950/40 text-rose-300 border border-rose-500/20'
@@ -284,7 +328,7 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
                   <>
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                     <span>
-                      Ready to sync: <strong>{pathValidation.count}</strong> Markdown notes detected
+                      Ready to sync: <strong>{pathValidation.count}</strong> Markdown note{pathValidation.count === 1 ? '' : 's'} detected
                     </span>
                   </>
                 ) : (
@@ -300,13 +344,13 @@ export const AddVaultModal: React.FC<AddVaultModalProps> = ({ isOpen, onClose, o
           {/* Vault Name */}
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-300">
-              Vault Name
+              Vault Name (Display Name)
             </label>
             <input
               type="text"
               value={vaultName}
               onChange={(e) => setVaultName(e.target.value)}
-              placeholder="Vault Name"
+              placeholder="e.g. My Personal Notes"
               required
               className="w-full text-xs px-3 py-2 rounded-xl glass-input"
             />

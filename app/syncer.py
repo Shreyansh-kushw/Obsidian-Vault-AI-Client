@@ -75,7 +75,7 @@ class VaultSyncer:
 
     def _on_watchdog_event(self, vault_id: str, action: str, rel_path: str, full_path: Path):
         """Dispatched from Watchdog event handler (thread-safe async dispatch)"""
-        asyncio.create_task(self.process_change(vault_id, action, rel_path, full_path))
+        state._safe_async(self.process_change(vault_id, action, rel_path, full_path))
 
     async def start(self):
         """Start the background synchronization engine and health check loop"""
@@ -145,10 +145,14 @@ class VaultSyncer:
             if ok:
                 total_files = resp.get("total_files")
                 state.add_log("warning", f"Removed {rel_path} from database", vault_id)
-                if vault_id in state.vaults and total_files is not None:
+                if vault_id in state.vaults:
                     v = state.vaults[vault_id]
-                    v["totalFiles"] = total_files
-                    v["succeeded"] = total_files
+                    if total_files is not None:
+                        v["totalFiles"] = total_files
+                        v["succeeded"] = total_files
+                    else:
+                        v["totalFiles"] = max(0, v.get("totalFiles", 1) - 1)
+                        v["succeeded"] = max(0, v.get("succeeded", 1) - 1)
                     v["last_synced"] = time.time()
                     state.set_vault(vault_id, v)
             else:

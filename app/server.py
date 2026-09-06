@@ -118,6 +118,8 @@ def discover_obsidian_vaults() -> List[Dict[str, Any]]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Register main event loop for threadsafe state broadcasts
+    state.set_loop(asyncio.get_running_loop())
     # Startup: start background syncer
     await syncer.start()
     yield

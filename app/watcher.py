@@ -33,7 +33,7 @@ def is_markdown_file(path_str: str) -> bool:
 class DebouncedEventHandler(FileSystemEventHandler):
     """
     Watchdog event handler with debouncing and Markdown filtering.
-    Dispatches debounced actions to the syncer callback.
+    Dispatches debounced actions to the syncer callback in a thread-safe manner.
     """
 
     def __init__(
@@ -42,43 +42,69 @@ class DebouncedEventHandler(FileSystemEventHandler):
         vault_path: Path,
         on_change_callback: Callable[[str, str, str, Path], None],
         debounce_seconds: float = 1.0,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         super().__init__()
         self.vault_id = vault_id
         self.vault_path = vault_path.resolve()
         self.on_change_callback = on_change_callback
         self.debounce_seconds = debounce_seconds
+        self._loop = loop or state._main_loop
 
-        # Map filepath -> (action, last_event_time, timer_handle)
+        # Map filepath -> asyncio.TimerHandle (managed on the event loop thread)
         self._pending_tasks: Dict[str, asyncio.TimerHandle] = {}
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
-    def _get_loop(self) -> asyncio.AbstractEventLoop:
-        if self._loop is None or self._loop.is_closed():
-            try:
-                self._loop = asyncio.get_running_loop()
-            except RuntimeError:
-                self._loop = asyncio.get_event_loop()
-        return self._loop
+    def _get_target_loop(self) -> Optional[asyncio.AbstractEventLoop]:
+        if self._loop and self._loop.is_running():
+            return self._loop
+        if state._main_loop and state._main_loop.is_running():
+            self._loop = state._main_loop
+            return self._loop
+        try:
+            loop = asyncio.get_running_loop()
+            self._loop = loop
+            return self._loop
+        except RuntimeError:
+            return None
 
     def _schedule_sync(self, action: str, filepath: Path):
-        path_str = str(filepath)
-        loop = self._get_loop()
-
-        # Cancel existing timer for this file if user is still typing/editing
-        if path_str in self._pending_tasks:
-            self._pending_tasks[path_str].cancel()
-
+        """Called from Watchdog background thread on file system events"""
         try:
-            rel_path = filepath.relative_to(self.vault_path).as_posix()
-        except ValueError:
-            rel_path = filepath.name
+            rel_path = Path(os.path.relpath(os.path.abspath(str(filepath)), os.path.abspath(str(self.vault_path)))).as_posix()
+        except Exception:
+            try:
+                rel_path = filepath.relative_to(self.vault_path).as_posix()
+            except Exception:
+                rel_path = filepath.name
+
+        loop = self._get_target_loop()
+        if loop and loop.is_running():
+            loop.call_soon_threadsafe(self._schedule_on_loop, action, rel_path, filepath)
+        else:
+            # Fallback if loop is somehow not available
+            state._safe_async(self._direct_dispatch(action, rel_path, filepath))
+
+    async def _direct_dispatch(self, action: str, rel_path: str, filepath: Path):
+        await asyncio.sleep(self.debounce_seconds)
+        self.on_change_callback(self.vault_id, action, rel_path, filepath)
+
+    def _schedule_on_loop(self, action: str, rel_path: str, filepath: Path):
+        """Executed safely on the main asyncio event loop"""
+        path_str = str(filepath)
+        loop = self._get_target_loop()
+        if not loop:
+            return
+
+        if path_str in self._pending_tasks:
+            try:
+                self._pending_tasks[path_str].cancel()
+            except Exception:
+                pass
 
         def fire():
             self._pending_tasks.pop(path_str, None)
             self.on_change_callback(self.vault_id, action, rel_path, filepath)
 
-        # Call fire after debounce_seconds in the event loop thread
         timer = loop.call_later(self.debounce_seconds, fire)
         self._pending_tasks[path_str] = timer
 
@@ -121,7 +147,7 @@ class VaultWatcher:
         self.handler: Optional[DebouncedEventHandler] = None
         self.is_running: bool = False
 
-    def start(self) -> bool:
+    def start(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> bool:
         if not self.local_path.exists() or not self.local_path.is_dir():
             return False
 
@@ -130,6 +156,7 @@ class VaultWatcher:
             vault_path=self.local_path,
             on_change_callback=self.on_change_callback,
             debounce_seconds=config.debounce_seconds,
+            loop=loop or state._main_loop,
         )
         self.observer = Observer()
         self.observer.schedule(self.handler, str(self.local_path), recursive=True)
@@ -151,12 +178,12 @@ class WatcherManager:
         self.on_change_callback = on_change_callback
         self.watchers: Dict[str, VaultWatcher] = {}
 
-    def attach_vault(self, vault_id: str, local_path: str) -> bool:
+    def attach_vault(self, vault_id: str, local_path: str, loop: Optional[asyncio.AbstractEventLoop] = None) -> bool:
         """Start or restart a watcher for a vault"""
         self.detach_vault(vault_id)
 
         watcher = VaultWatcher(vault_id, local_path, self.on_change_callback)
-        success = watcher.start()
+        success = watcher.start(loop=loop or state._main_loop)
         if success:
             self.watchers[vault_id] = watcher
         return success
@@ -175,3 +202,4 @@ class WatcherManager:
         if vault_id in self.watchers and self.watchers[vault_id].is_running:
             return "Watching"
         return "Stopped"
+
