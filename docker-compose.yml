@@ -8,9 +8,9 @@ services:
     ports:
       - "5050:5050"
     environment:
-      - SERVER_URL=${SERVER_URL:-http://host.docker.internal:8000}
-      - API_KEY=${API_KEY}
-      - OWNER_TOKEN=${OWNER_TOKEN}
+      - SERVER_URL=${SERVER_URL:-https://obsidian-backend.salmonbay-c8abd56c.centralindia.azurecontainerapps.io}
+      - API_KEY=${API_KEY:-}
+      - OWNER_TOKEN=${OWNER_TOKEN:-}
       - CLIENT_PORT=5050
       - CLIENT_HOST=0.0.0.0
       - DEBOUNCE_SECONDS=${DEBOUNCE_SECONDS:-1.0}
@@ -18,9 +18,16 @@ services:
     extra_hosts:
       # Allows reaching server running on the host machine (http://host.docker.internal:8000)
       - "host.docker.internal:host-gateway"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       # Mount local configuration for persistence
       - ./client_config.json:/app/client_config.json
+      # Mount application code
+      - ./app:/app/app
+      # Mount user home directory so host vault paths match inside container
+      - ${HOME}:${HOME}
       # Mount host directory containing Obsidian vaults (configurable via .env)
       - ${LOCAL_VAULTS_DIR:-./vaults}:/vaults
 

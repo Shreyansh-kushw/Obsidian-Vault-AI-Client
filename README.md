@@ -53,7 +53,7 @@ docker compose up --build -d
 
 | Variable | Default | Description |
 |---|---|---|
-| `SERVER_URL` | `http://localhost:8000` | Backend Obsidian-Vault-AI-Server address |
+| `SERVER_URL` | `https://obsidian-backend.salmonbay-c8abd56c.centralindia.azurecontainerapps.io` | Backend Obsidian-Vault-AI-Server address |
 | `OWNER_TOKEN` | `""` | User's unique Owner Token (`X-OWNER-TOKEN`) |
 | `API_KEY` | `""` | Server API Key (`X-API-KEY`) if required |
 | `CLIENT_PORT` | `5050` | Local daemon HTTP & WebSocket port |

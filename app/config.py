@@ -8,7 +8,7 @@ CONFIG_FILE = Path(__file__).resolve().parent.parent / "client_config.json"
 
 
 class ClientConfig(BaseModel):
-    server_url: str = Field(default="http://localhost:8000")
+    server_url: str = Field(default="https://obsidian-backend.salmonbay-c8abd56c.centralindia.azurecontainerapps.io")
     api_key: str = Field(default="")
     owner_token: str = Field(default="")
     client_port: int = Field(default=5050)
@@ -29,14 +29,14 @@ class ClientConfig(BaseModel):
             except Exception:
                 data = {}
 
-        # 2. Override with environment variables if present
-        server_url = os.getenv("SERVER_URL", data.get("server_url", "http://localhost:8000"))
-        api_key = os.getenv("API_KEY", data.get("api_key", ""))
-        owner_token = os.getenv("OWNER_TOKEN", data.get("owner_token", ""))
-        client_port = int(os.getenv("CLIENT_PORT", data.get("client_port", 5050)))
-        client_host = os.getenv("CLIENT_HOST", data.get("client_host", "127.0.0.1"))
-        debounce_seconds = float(os.getenv("DEBOUNCE_SECONDS", data.get("debounce_seconds", 1.0)))
-        poll_interval = float(os.getenv("POLL_INTERVAL", data.get("poll_interval", 5.0)))
+        # 2. Prefer non-empty environment variables or fallback to JSON file config
+        server_url = (os.getenv("SERVER_URL") or data.get("server_url") or "https://obsidian-backend.salmonbay-c8abd56c.centralindia.azurecontainerapps.io").strip()
+        api_key = (os.getenv("API_KEY") or data.get("api_key") or "").strip()
+        owner_token = (os.getenv("OWNER_TOKEN") or data.get("owner_token") or "").strip()
+        client_port = int(os.getenv("CLIENT_PORT") or data.get("client_port") or 5050)
+        client_host = (os.getenv("CLIENT_HOST") or data.get("client_host") or "127.0.0.1").strip()
+        debounce_seconds = float(os.getenv("DEBOUNCE_SECONDS") or data.get("debounce_seconds") or 1.0)
+        poll_interval = float(os.getenv("POLL_INTERVAL") or data.get("poll_interval") or 5.0)
 
         return cls(
             server_url=server_url.rstrip("/"),
