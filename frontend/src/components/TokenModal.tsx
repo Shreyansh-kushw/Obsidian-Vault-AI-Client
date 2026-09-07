@@ -9,7 +9,7 @@ interface TokenModalProps {
 }
 
 export const TokenModal: React.FC<TokenModalProps> = ({ isOpen, onClose, onSaved }) => {
-  const [serverUrl, setServerUrl] = useState('http://localhost:8000');
+  const [serverUrl, setServerUrl] = useState('https://obsidian-backend.salmonbay-c8abd56c.centralindia.azurecontainerapps.io');
   const [apiKey, setApiKey] = useState('');
   const [ownerToken, setOwnerToken] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -134,7 +134,7 @@ export const TokenModal: React.FC<TokenModalProps> = ({ isOpen, onClose, onSaved
                 type="text"
                 value={serverUrl}
                 onChange={(e) => setServerUrl(e.target.value)}
-                placeholder="http://localhost:8000"
+                placeholder="https://obsidian-backend.salmonbay-c8abd56c.centralindia.azurecontainerapps.io"
                 required
                 className="w-full text-xs px-3.5 py-2.5 rounded-xl glass-input font-mono"
               />
