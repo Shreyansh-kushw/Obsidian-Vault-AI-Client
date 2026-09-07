@@ -22,7 +22,8 @@ services:
       # Mount local configuration for persistence
       - ./client_config.json:/app/client_config.json
       # Mount host directory containing Obsidian vaults (configurable via .env)
-      - ${LOCAL_VAULTS_DIR}:/vaults
+      - ${LOCAL_VAULTS_DIR:-./vaults}:/vaults
+
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:5050/api/status || exit 1"]
