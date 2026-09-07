@@ -1,0 +1,17 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+client_config.json
+.git/
+.gitignore
+.DS_Store
+*.log
+
+# Frontend assets (handled by frontend dockerfile)
+frontend/node_modules/
+frontend/dist/
+frontend/.oxlintrc.json

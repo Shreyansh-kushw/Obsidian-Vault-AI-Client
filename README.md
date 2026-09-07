@@ -38,22 +38,16 @@ cd frontend
 npm install
 ```
 
-### 4. Run the Client Watcher Daemon
+### 4. Run with Docker Compose (Alternative)
 ```bash
-# In one terminal:
-python -m app.main
+# Start both client backend daemon and frontend UI
+docker compose up --build -d
 ```
-*Tip: On first run, it will ask for your **Owner Token** (which you can find in your server frontend Settings).*
-
-### 5. Run the Frontend Dashboard
-```bash
-# In another terminal:
-cd frontend
-npm run dev
-```
-Open **`http://localhost:5173`** in your browser.
+- Dashboard UI: **`http://localhost:5173`**
+- Daemon API & WebSocket: **`http://localhost:5050`**
 
 ---
+
 
 ## ⚙️ Configuration (`client_config.json` or `.env`)
 
