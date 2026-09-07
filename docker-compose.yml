@@ -9,8 +9,8 @@ services:
       - "5050:5050"
     environment:
       - SERVER_URL=${SERVER_URL:-http://host.docker.internal:8000}
-      - API_KEY=${API_KEY:-}
-      - OWNER_TOKEN=${OWNER_TOKEN:-}
+      - API_KEY=${API_KEY}
+      - OWNER_TOKEN=${OWNER_TOKEN}
       - CLIENT_PORT=5050
       - CLIENT_HOST=0.0.0.0
       - DEBOUNCE_SECONDS=${DEBOUNCE_SECONDS:-1.0}
@@ -22,7 +22,7 @@ services:
       # Mount local configuration for persistence
       - ./client_config.json:/app/client_config.json
       # Mount host directory containing Obsidian vaults (configurable via .env)
-      - ${LOCAL_VAULTS_DIR:-/home/anacktice-justice/Documents}:/vaults
+      - ${LOCAL_VAULTS_DIR}:/vaults
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:5050/api/status || exit 1"]
